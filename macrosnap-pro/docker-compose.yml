@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  macrosnap-pro:
+    build: .
+    ports:
+      - "8501:8501"   # Streamlit UI
+      - "8000:8000"   # FastAPI Webhook
+    env_file:
+      - .env
+    restart: always
