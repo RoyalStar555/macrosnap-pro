@@ -38,6 +38,10 @@ def create_user_profile(profile_data: dict = None, **kwargs):
     data = dict(profile_data) if profile_data else {}
     data.update(kwargs)
 
+    # ✅ Add this fallback so the database doesn't crash if 'name' is missing
+    if "name" not in data or not data["name"]:
+        data["name"] = "New User"
+
     # If 'id' is empty, None, or blank, remove it so Supabase
     # can automatically generate a UUID using gen_random_uuid()
     if "id" in data and not data["id"]:
@@ -46,7 +50,6 @@ def create_user_profile(profile_data: dict = None, **kwargs):
     db = get_supabase_client()
     res = db.table("profiles").upsert(data, on_conflict="whatsapp_number").execute()
     return res.data[0] if res.data else None
-
 @log_execution_time
 def get_daily_logs(user_id: str, date_str: str = None):
     if not date_str:
