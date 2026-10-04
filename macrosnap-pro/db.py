@@ -37,7 +37,7 @@ def create_user_profile(profile_data: dict = None, **kwargs):
     data = dict(profile_data) if profile_data else {}
     data.update(kwargs)
 
-    # ✅ Fallbacks for required database constraints
+    # ✅ Fallbacks for ALL required database constraints
     if "name" not in data or not data["name"]:
         data["name"] = "New User"
         
