@@ -9,7 +9,7 @@ def get_supabase_credentials():
     try:
         url = st.secrets["SUPABASE_URL"]
         key = st.secrets["SUPABASE_KEY"]
-    except FileNotFoundError:
+    except Exception:
         url = os.environ.get("SUPABASE_URL")
         key = os.environ.get("SUPABASE_KEY")
     return url, key
@@ -53,3 +53,10 @@ def get_daily_logs(user_id: str, date_str: str = None):
     db = get_supabase_client()
     res = db.table("meal_logs").select("*").eq("user_id", user_id).eq("log_date", date_str).execute()
     return res.data or []
+
+@log_execution_time
+def log_meal_db(meal_data: dict):
+    """Inserts a new meal log into the Supabase database."""
+    db = get_supabase_client()
+    res = db.table("meal_logs").insert(meal_data).execute()
+    return res.data[0] if res.data else None
