@@ -32,10 +32,11 @@ def get_user_by_whatsapp(whatsapp_number: str):
     return res.data[0] if res.data else None
 
 @log_execution_time
-def create_user_profile(profile_data: dict):
+def create_user_profile(profile_data: dict = None, **kwargs):
     """Creates or updates a user profile in Supabase."""
-    # Make a copy so we don't mutate the original dictionary unexpectedly
-    data = dict(profile_data)
+    # Support both dictionary inputs and direct keyword arguments
+    data = dict(profile_data) if profile_data else {}
+    data.update(kwargs)
 
     # If 'id' is empty, None, or blank, remove it so Supabase
     # can automatically generate a UUID using gen_random_uuid()
