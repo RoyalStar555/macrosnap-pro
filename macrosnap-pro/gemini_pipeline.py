@@ -1,5 +1,42 @@
+import io
+import json
+import os
+from typing import Optional
+from PIL import Image
+from pydantic import BaseModel
+from google import genai
+from google.genai import types
+
+import logger
 from logger import log_execution_time
-# (Include any other necessary imports like json, genai, types, Optional, MealMacros, etc.)
+
+MAX_RETRIES = 1
+
+class MealMacros(BaseModel):
+    is_food: bool
+    food_name: str
+    total_calories: int
+    protein_g: float
+    carbs_g: float
+    fat_g: float
+    confidence_score: float
+
+def _get_client():
+    """Initializes and returns the base Gemini client."""
+    api_key = os.environ.get("GEMINI_API_KEY")
+    return genai.Client(api_key=api_key)
+
+def _get_fallback_chain():
+    """Returns the list of Gemini models to try in order."""
+    return ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+
+def _optimize_image(image_bytes: bytes) -> Image.Image:
+    """Optimizes image size for high-speed vision pipeline."""
+    img = Image.open(io.BytesIO(image_bytes))
+    img.thumbnail((1024, 1024))
+    if img.mode != "RGB":
+        img = img.convert("RGB")
+    return img
 
 @log_execution_time
 def process_meal_fast(image_bytes: bytes) -> Optional[MealMacros]:
@@ -7,7 +44,6 @@ def process_meal_fast(image_bytes: bytes) -> Optional[MealMacros]:
     High-speed vision pipeline: preprocess -> Gemini generate_content -> validated Pydantic model.
     """
     try:
-        # Get the default client, but explicitly recreate it with a 60-second timeout
         base_client = _get_client()
         client = genai.Client(
             api_key=base_client.api_key, 
