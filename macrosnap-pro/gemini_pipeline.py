@@ -24,8 +24,7 @@ class MealMacros(BaseModel):
 
 def _get_client() -> genai.Client:
     """
-    Initializes the Gemini client. Automatically routes AQ. keys through 
-    Vertex AI Express Mode (vertexai=True) as required by Google Cloud.
+    Initializes the Gemini client for the native Google AI Studio endpoint.
     """
     api_key = None
     try:
@@ -40,19 +39,11 @@ def _get_client() -> genai.Client:
         logging.error("[CRITICAL] GEMINI_API_KEY is missing from Streamlit secrets and environment variables!")
         raise ValueError("Missing GEMINI_API_KEY.")
     
-    # AQ. keys are Vertex AI Express Mode keys and require vertexai=True
-    if api_key.startswith("AQ."):
-        return genai.Client(
-            vertexai=True,
-            api_key=api_key,
-            http_options=types.HttpOptions(timeout=120000)
-        )
-    else:
-        return genai.Client(
-            api_key=api_key,
-            http_options=types.HttpOptions(timeout=120000)
-        )
-
+    # Standard AI Studio endpoint client initialization for AQ. keys
+    return genai.Client(
+        api_key=api_key,
+        http_options=types.HttpOptions(timeout=120000)
+    )
 def _get_fallback_chain():
     """Returns the ordered list of high-performance Gemini models compatible with Vertex AI Express Mode."""
     return ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-2.5-flash"]
