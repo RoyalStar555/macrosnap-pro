@@ -22,8 +22,8 @@ class MealMacros(BaseModel):
     confidence_score: float
 
 def _get_fallback_chain():
-    """Returns the list of Gemini models to try in order."""
-    return ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+    """Returns the list of valid Gemini models to try in order."""
+    return ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
 
 def _optimize_image(image_bytes: bytes) -> Image.Image:
     """Optimizes image size for high-speed vision pipeline."""
