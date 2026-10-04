@@ -1,3 +1,6 @@
+from logger import log_execution_time
+# (Include any other necessary imports like json, genai, types, Optional, MealMacros, etc.)
+
 @log_execution_time
 def process_meal_fast(image_bytes: bytes) -> Optional[MealMacros]:
     """
