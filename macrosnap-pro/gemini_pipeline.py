@@ -24,7 +24,8 @@ class MealMacros(BaseModel):
 
 def _get_client() -> genai.Client:
     """
-    Initializes and returns the Gemini client securely from Streamlit secrets or environment variables.
+    Initializes the Gemini client. Automatically routes AQ. keys through 
+    Vertex AI Express Mode (vertexai=True) as required by Google Cloud.
     """
     api_key = None
     try:
@@ -39,13 +40,21 @@ def _get_client() -> genai.Client:
         logging.error("[CRITICAL] GEMINI_API_KEY is missing from Streamlit secrets and environment variables!")
         raise ValueError("Missing GEMINI_API_KEY.")
     
-    return genai.Client(
-        api_key=api_key,
-        http_options=types.HttpOptions(timeout=120000)
-    )
+    # AQ. keys are Vertex AI Express Mode keys and require vertexai=True
+    if api_key.startswith("AQ."):
+        return genai.Client(
+            vertexai=True,
+            api_key=api_key,
+            http_options=types.HttpOptions(timeout=120000)
+        )
+    else:
+        return genai.Client(
+            api_key=api_key,
+            http_options=types.HttpOptions(timeout=120000)
+        )
 
 def _get_fallback_chain():
-    """Returns the ordered list of high-performance Gemini models."""
+    """Returns the ordered list of high-performance Gemini models compatible with Vertex AI Express Mode."""
     return ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-2.5-flash"]
 
 def _optimize_image(image_bytes: bytes) -> bytes:
