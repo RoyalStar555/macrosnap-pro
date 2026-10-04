@@ -34,13 +34,15 @@ def get_user_by_whatsapp(whatsapp_number: str):
 @log_execution_time
 def create_user_profile(profile_data: dict = None, **kwargs):
     """Creates or updates a user profile in Supabase."""
-    # Support both dictionary inputs and direct keyword arguments
     data = dict(profile_data) if profile_data else {}
     data.update(kwargs)
 
-    # ✅ Add this fallback so the database doesn't crash if 'name' is missing
+    # ✅ Fallbacks for required database constraints
     if "name" not in data or not data["name"]:
         data["name"] = "New User"
+        
+    if "tdee" not in data or not data["tdee"]:
+        data["tdee"] = 2000  # Provide a standard default calorie goal
 
     # If 'id' is empty, None, or blank, remove it so Supabase
     # can automatically generate a UUID using gen_random_uuid()
