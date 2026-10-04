@@ -1,13 +1,13 @@
 import io
 import json
 import os
+import logging
 from typing import Optional
 from PIL import Image
 from pydantic import BaseModel
 from google import genai
 from google.genai import types
 
-import logger
 from logger import log_execution_time
 
 MAX_RETRIES = 1
@@ -20,11 +20,6 @@ class MealMacros(BaseModel):
     carbs_g: float
     fat_g: float
     confidence_score: float
-
-def _get_client():
-    """Initializes and returns the base Gemini client."""
-    api_key = os.environ.get("GEMINI_API_KEY")
-    return genai.Client(api_key=api_key)
 
 def _get_fallback_chain():
     """Returns the list of Gemini models to try in order."""
@@ -44,19 +39,16 @@ def process_meal_fast(image_bytes: bytes) -> Optional[MealMacros]:
     High-speed vision pipeline: preprocess -> Gemini generate_content -> validated Pydantic model.
     """
     try:
-        base_client = _get_client()
-        client = genai.Client(
-            api_key=base_client.api_key, 
-            http_options={'timeout': 60.0}
-        )
+        # Initialize client directly with a 60-second timeout (picks up GEMINI_API_KEY automatically)
+        client = genai.Client(http_options={'timeout': 60.0})
     except Exception as e:
-        logger.error(f"[ERROR] Failed to initialize Gemini Client: {e}")
+        logging.error(f"[ERROR] Failed to initialize Gemini Client: {e}")
         return None
 
     try:
         pil_image = _optimize_image(image_bytes)
     except Exception as e:
-        logger.error(f"[ERROR] Image optimization failed: {e}")
+        logging.error(f"[ERROR] Image optimization failed: {e}")
         return None
 
     prompt = (
@@ -75,7 +67,7 @@ def process_meal_fast(image_bytes: bytes) -> Optional[MealMacros]:
     last_error = None
 
     for model_name in models_to_try:
-        logger.info(f"[INFO] Attempting meal analysis with model: {model_name}")
+        logging.info(f"[INFO] Attempting meal analysis with model: {model_name}")
         for attempt in range(1, MAX_RETRIES + 1):
             try:
                 response = client.models.generate_content(
@@ -93,9 +85,9 @@ def process_meal_fast(image_bytes: bytes) -> Optional[MealMacros]:
 
             except Exception as e:
                 last_error = e
-                logger.warning(f"[WARNING] Model {model_name} attempt {attempt} failed: {e}")
+                logging.warning(f"[WARNING] Model {model_name} attempt {attempt} failed: {e}")
 
-    logger.error(f"[ERROR] All models in fallback chain failed. Last error: {last_error}")
+    logging.error(f"[ERROR] All models in fallback chain failed. Last error: {last_error}")
     return None
 
 @log_execution_time
@@ -104,11 +96,7 @@ def generate_weekly_deep_dive(logs: list, user: dict) -> dict:
     Generates a weekly health and nutrition deep dive report using Gemini.
     """
     try:
-        base_client = _get_client()
-        client = genai.Client(
-            api_key=base_client.api_key, 
-            http_options={'timeout': 60.0}
-        )
+        client = genai.Client(http_options={'timeout': 60.0})
         
         prompt = (
             "You are an expert clinical dietician. Analyze the user profile and their recent meal logs, "
@@ -134,7 +122,7 @@ def generate_weekly_deep_dive(logs: list, user: dict) -> dict:
                     clean_text = response.text.replace("```json", "").replace("```", "").strip()
                     return json.loads(clean_text)
             except Exception as e:
-                logger.warning(f"[WARNING] Weekly deep dive with {model_name} failed: {e}")
+                logging.warning(f"[WARNING] Weekly deep dive with {model_name} failed: {e}")
 
         # Safe fallback dictionary if models fail
         return {
@@ -144,7 +132,7 @@ def generate_weekly_deep_dive(logs: list, user: dict) -> dict:
         }
 
     except Exception as e:
-        logger.error(f"[ERROR] generate_weekly_deep_dive failed: {e}")
+        logging.error(f"[ERROR] generate_weekly_deep_dive failed: {e}")
         return {
             "executive_summary": "Could not generate report due to a technical error.",
             "health_warnings": [],
