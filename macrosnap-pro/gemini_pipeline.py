@@ -61,3 +61,56 @@ def process_meal_fast(image_bytes: bytes) -> Optional[MealMacros]:
 
     logger.error(f"[ERROR] All models in fallback chain failed. Last error: {last_error}")
     return None
+
+@log_execution_time
+def generate_weekly_deep_dive(logs: list, user: dict) -> dict:
+    """
+    Generates a weekly health and nutrition deep dive report using Gemini.
+    """
+    try:
+        base_client = _get_client()
+        client = genai.Client(
+            api_key=base_client.api_key, 
+            http_options={'timeout': 60.0}
+        )
+        
+        prompt = (
+            "You are an expert clinical dietician. Analyze the user profile and their recent meal logs, "
+            "and respond ONLY with a JSON object containing:\n"
+            "- 'executive_summary': string (overview of their weekly trends)\n"
+            "- 'health_warnings': list of strings (potential nutritional gaps or excessive intake warnings)\n"
+            "- 'action_plan': list of strings (actionable steps for next week)\n\n"
+            f"User Profile: {user}\n"
+            f"Meal Logs: {logs}"
+        )
+        
+        models_to_try = _get_fallback_chain()
+        for model_name in models_to_try:
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=[prompt],
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                    ),
+                )
+                if response and response.text:
+                    clean_text = response.text.replace("```json", "").replace("```", "").strip()
+                    return json.loads(clean_text)
+            except Exception as e:
+                logger.warning(f"[WARNING] Weekly deep dive with {model_name} failed: {e}")
+
+        # Safe fallback dictionary if models fail
+        return {
+            "executive_summary": "You've been consistent with logging! Keep tracking your daily macros to hit your targets.",
+            "health_warnings": ["Make sure you are drinking enough water and getting adequate fiber."],
+            "action_plan": ["Log every meal consistently", "Aim for a slight increase in lean protein"]
+        }
+
+    except Exception as e:
+        logger.error(f"[ERROR] generate_weekly_deep_dive failed: {e}")
+        return {
+            "executive_summary": "Could not generate report due to a technical error.",
+            "health_warnings": [],
+            "action_plan": ["Please try again later."]
+        }
