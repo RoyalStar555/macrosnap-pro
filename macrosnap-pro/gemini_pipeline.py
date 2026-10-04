@@ -24,47 +24,48 @@ class MealMacros(BaseModel):
 
 def _get_client() -> genai.Client:
     """
-    Initializes the Gemini client, routing AQ. keys through Vertex AI with the project number.
+    Initializes the Gemini client. Correctly routes AQ. and AIza keys 
+    to the Google AI Studio endpoint unless Vertex AI mode is explicitly enabled.
     """
     api_key = None
     try:
         api_key = st.secrets.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY")
     except Exception:
         pass
-    
+     
     if not api_key:
         api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-        
+         
     if not api_key:
         logging.error("[CRITICAL] GEMINI_API_KEY is missing!")
         raise ValueError("Missing GEMINI_API_KEY.")
 
+    # Check if Vertex AI mode is explicitly requested via environment variables
+    use_vertex = os.environ.get("GOOGLE_GENAI_USE_VERTEXAI", "false").lower() == "true"
     project_id = None
     try:
         project_id = st.secrets.get("GOOGLE_CLOUD_PROJECT") or os.environ.get("GOOGLE_CLOUD_PROJECT")
     except Exception:
         pass
 
-    # AQ. keys require Vertex AI mode and the project ID/number
-    if api_key.startswith("AQ."):
-        if not project_id:
-            raise ValueError("AQ. keys require GOOGLE_CLOUD_PROJECT in your secrets.")
-        
+    if use_vertex and project_id:
         return genai.Client(
             vertexai=True,
             project=project_id,
-            location="us-central1",
+            location=os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1"),
             api_key=api_key,
             http_options=types.HttpOptions(timeout=120000)
         )
     else:
+        # Standard Google AI Studio client (handles both AQ. and AIza keys natively)
         return genai.Client(
             api_key=api_key,
             http_options=types.HttpOptions(timeout=120000)
         )
+
 def _get_fallback_chain():
-    """Returns the ordered list of high-performance Gemini models compatible with Vertex AI Express Mode."""
-    return ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-2.5-flash"]
+    """Returns the ordered list of high-performance Gemini production models."""
+    return ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-2.5-flash"]
 
 def _optimize_image(image_bytes: bytes) -> bytes:
     """
