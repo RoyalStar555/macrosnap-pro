@@ -31,17 +31,14 @@ def _get_client() -> genai.Client:
         logging.error("[CRITICAL] GEMINI_API_KEY or GOOGLE_API_KEY environment variable is MISSING from the runtime environment!")
         raise ValueError("Missing GEMINI_API_KEY environment variable.")
     
-    # Log safe diagnostic info (prefix and length) to confirm key is loaded correctly
-    logging.info(f"[INFO] Gemini API Key loaded successfully. Prefix: {api_key[:4]}... Length: {len(api_key)}")
-    
     return genai.Client(
         api_key=api_key,
         http_options=types.HttpOptions(timeout=120000)
     )
 
 def _get_fallback_chain():
-    """Returns the ordered list of high-performance Gemini models to try in sequence."""
-    return ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
+    """Returns the ordered list of current high-performance Gemini models compatible with AQ. keys."""
+    return ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-2.5-flash"]
 
 def _optimize_image(image_bytes: bytes) -> bytes:
     """
