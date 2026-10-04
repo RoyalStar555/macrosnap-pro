@@ -5,6 +5,7 @@ import logging
 from typing import Optional
 from PIL import Image
 from pydantic import BaseModel
+import streamlit as st
 from google import genai
 from google.genai import types
 
@@ -23,13 +24,20 @@ class MealMacros(BaseModel):
 
 def _get_client() -> genai.Client:
     """
-    Initializes and returns the Gemini client securely with diagnostic checks.
+    Initializes and returns the Gemini client securely from Streamlit secrets or environment variables.
     """
-    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    api_key = None
+    try:
+        api_key = st.secrets.get("GEMINI_API_KEY") or st.secrets.get("GOOGLE_API_KEY")
+    except Exception:
+        pass
     
     if not api_key:
-        logging.error("[CRITICAL] GEMINI_API_KEY or GOOGLE_API_KEY environment variable is MISSING from the runtime environment!")
-        raise ValueError("Missing GEMINI_API_KEY environment variable.")
+        api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+        
+    if not api_key:
+        logging.error("[CRITICAL] GEMINI_API_KEY is missing from Streamlit secrets and environment variables!")
+        raise ValueError("Missing GEMINI_API_KEY.")
     
     return genai.Client(
         api_key=api_key,
@@ -37,7 +45,7 @@ def _get_client() -> genai.Client:
     )
 
 def _get_fallback_chain():
-    """Returns the ordered list of current high-performance Gemini models compatible with AQ. keys."""
+    """Returns the ordered list of high-performance Gemini models."""
     return ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-2.5-flash"]
 
 def _optimize_image(image_bytes: bytes) -> bytes:
