@@ -37,12 +37,39 @@ def create_user_profile(profile_data: dict = None, **kwargs):
     data = dict(profile_data) if profile_data else {}
     data.update(kwargs)
 
-    # ✅ Fallbacks for ALL required database constraints
+    # ✅ Fallbacks for ALL potential NOT NULL database constraints
+    
+    # Basic Info
     if "name" not in data or not data["name"]:
         data["name"] = "New User"
-        
+    if "full_name" not in data or not data["full_name"]:
+        data["full_name"] = "New User"
+    if "age" not in data or not data["age"]:
+        data["age"] = 30
+    if "gender" not in data or not data["gender"]:
+        data["gender"] = "Not specified"
+
+    # Metrics & Status
+    if "height_cm" not in data or not data["height_cm"]:
+        data["height_cm"] = 170.0
+    if "weight_kg" not in data or not data["weight_kg"]:
+        data["weight_kg"] = 70.0
+    if "activity_level" not in data or not data["activity_level"]:
+        data["activity_level"] = "Sedentary"
+    if "goal" not in data or not data["goal"]:
+        data["goal"] = "Maintain"
+
+    # Macro Targets
     if "tdee" not in data or not data["tdee"]:
-        data["tdee"] = 2000  # Provide a standard default calorie goal
+        data["tdee"] = 2000.0
+    if "calorie_target" not in data or not data["calorie_target"]:
+        data["calorie_target"] = 2000.0
+    if "protein_target_g" not in data or not data["protein_target_g"]:
+        data["protein_target_g"] = 150.0
+    if "carb_target_g" not in data or not data["carb_target_g"]:
+        data["carb_target_g"] = 200.0
+    if "fat_target_g" not in data or not data["fat_target_g"]:
+        data["fat_target_g"] = 65.0
 
     # If 'id' is empty, None, or blank, remove it so Supabase
     # can automatically generate a UUID using gen_random_uuid()
