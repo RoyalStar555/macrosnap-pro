@@ -24,11 +24,11 @@ class MealMacros(BaseModel):
 
 def _get_client() -> genai.Client:
     """
-    Initializes the Gemini client for the native Google AI Studio endpoint.
+    Initializes the Gemini client, routing AQ. keys through Vertex AI with the project number.
     """
     api_key = None
     try:
-        api_key = st.secrets.get("GEMINI_API_KEY") or st.secrets.get("GOOGLE_API_KEY")
+        api_key = st.secrets.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY")
     except Exception:
         pass
     
@@ -36,14 +36,32 @@ def _get_client() -> genai.Client:
         api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
         
     if not api_key:
-        logging.error("[CRITICAL] GEMINI_API_KEY is missing from Streamlit secrets and environment variables!")
+        logging.error("[CRITICAL] GEMINI_API_KEY is missing!")
         raise ValueError("Missing GEMINI_API_KEY.")
-    
-    # Standard AI Studio endpoint client initialization for AQ. keys
-    return genai.Client(
-        api_key=api_key,
-        http_options=types.HttpOptions(timeout=120000)
-    )
+
+    project_id = None
+    try:
+        project_id = st.secrets.get("GOOGLE_CLOUD_PROJECT") or os.environ.get("GOOGLE_CLOUD_PROJECT")
+    except Exception:
+        pass
+
+    # AQ. keys require Vertex AI mode and the project ID/number
+    if api_key.startswith("AQ."):
+        if not project_id:
+            raise ValueError("AQ. keys require GOOGLE_CLOUD_PROJECT in your secrets.")
+        
+        return genai.Client(
+            vertexai=True,
+            project=project_id,
+            location="us-central1",
+            api_key=api_key,
+            http_options=types.HttpOptions(timeout=120000)
+        )
+    else:
+        return genai.Client(
+            api_key=api_key,
+            http_options=types.HttpOptions(timeout=120000)
+        )
 def _get_fallback_chain():
     """Returns the ordered list of high-performance Gemini models compatible with Vertex AI Express Mode."""
     return ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-2.5-flash"]
