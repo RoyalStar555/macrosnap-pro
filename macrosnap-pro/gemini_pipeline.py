@@ -23,13 +23,16 @@ class MealMacros(BaseModel):
 
 def _get_client() -> genai.Client:
     """
-    Initializes and returns the Gemini client securely.
-    Pulls from GEMINI_API_KEY or GOOGLE_API_KEY environment variables 
-    and sets a robust 120,000ms (120 seconds) timeout via types.HttpOptions.
+    Initializes and returns the Gemini client securely with diagnostic checks.
     """
     api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    
     if not api_key:
-        raise ValueError("GEMINI_API_KEY or GOOGLE_API_KEY environment variable is not set.")
+        logging.error("[CRITICAL] GEMINI_API_KEY or GOOGLE_API_KEY environment variable is MISSING from the runtime environment!")
+        raise ValueError("Missing GEMINI_API_KEY environment variable.")
+    
+    # Log safe diagnostic info (prefix and length) to confirm key is loaded correctly
+    logging.info(f"[INFO] Gemini API Key loaded successfully. Prefix: {api_key[:4]}... Length: {len(api_key)}")
     
     return genai.Client(
         api_key=api_key,
@@ -43,8 +46,7 @@ def _get_fallback_chain():
 def _optimize_image(image_bytes: bytes) -> bytes:
     """
     Downscales image resolution to a maximum bounding box of 512x512 pixels 
-    and compresses to JPEG format at 80% quality to eliminate write timeouts 
-    and speed up network transfer payloads.
+    and compresses to JPEG format at 80% quality to eliminate write timeouts.
     """
     try:
         img = Image.open(io.BytesIO(image_bytes))
@@ -162,7 +164,6 @@ def generate_weekly_deep_dive(logs: list, user: dict) -> dict:
         except Exception as e:
             logging.warning(f"[WARNING] Weekly deep dive report generation with model {model_name} failed: {e}")
 
-    # Fallback dictionary if all model attempts fail
     return {
         "executive_summary": "You've demonstrated consistent engagement with logging your meals! Continue tracking your daily macros diligently to hit your target metrics.",
         "health_warnings": ["Ensure adequate hydration throughout the day and sufficient dietary fiber intake."],
