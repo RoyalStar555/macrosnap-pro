@@ -1,5 +1,4 @@
 import os
-import base64
 import io
 import json
 import time
@@ -9,16 +8,15 @@ from typing import Optional
 from PIL import Image, ImageOps
 from google import genai
 from google.genai import types
-from google.genai.errors import APIError, ServerError
+from google.genai.errors import ServerError
 from pydantic import BaseModel, Field
 import streamlit as st
 from logger import log_execution_time
 
 logger = logging.getLogger("MacroSnap")
 
-MAX_RETRIES = 2
-RETRY_WAIT_CAP = 25
-REQUEST_TIMEOUT = 60.0  # seconds
+MAX_RETRIES = 1
+REQUEST_TIMEOUT = 20.0  # 20-second timeout per model call to avoid hanging UI
 
 
 # ── Pydantic schema with is_food guardrail & backward compatibility ────────
@@ -68,20 +66,6 @@ def _get_client() -> genai.Client:
     )
 
 
-# ── Retry & Fallback helpers ─────────────────────────────────────────────────
-
-def _parse_retry_delay(error_message: str) -> float:
-    """Extract retry delay from a 429 error message, capped at RETRY_WAIT_CAP."""
-    match = re.search(r"retry in ([\d.]+)s", str(error_message), re.IGNORECASE)
-    delay = float(match.group(1)) if match else 15.0
-    return min(delay, RETRY_WAIT_CAP)
-
-
-def _is_retryable(error_str: str) -> bool:
-    """Check if the error is a transient rate-limit or availability issue."""
-    return any(kw in error_str for kw in ["429", "RESOURCE_EXHAUSTED", "503", "UNAVAILABLE", "timed out", "timeout"])
-
-
 def _get_fallback_chain() -> list[str]:
     """Generates an ordered, valid fallback model chain."""
     primary = _get_model_name()
@@ -92,8 +76,8 @@ def _get_fallback_chain() -> list[str]:
 
 # ── Image preprocessing ─────────────────────────────────────────────────────
 
-def _optimize_image(image_bytes: bytes) -> bytes:
-    """Fix EXIF rotation, resize to 768px max, compress to JPEG bytes."""
+def _optimize_image(image_bytes: bytes) -> Image.Image:
+    """Fix EXIF rotation, resize to 768px max, return PIL Image object."""
     img = Image.open(io.BytesIO(image_bytes))
 
     # Fix mobile photo orientation metadata
@@ -103,10 +87,7 @@ def _optimize_image(image_bytes: bytes) -> bytes:
         img = img.convert("RGB")
 
     img.thumbnail((768, 768), Image.Resampling.LANCZOS)
-
-    buffer = io.BytesIO()
-    img.save(buffer, format="JPEG", quality=80)
-    return buffer.getvalue()
+    return img
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
@@ -115,7 +96,6 @@ def _optimize_image(image_bytes: bytes) -> bytes:
 def process_meal_fast(image_bytes: bytes) -> Optional[MealMacros]:
     """
     High-speed vision pipeline: preprocess -> Gemini generate_content -> validated Pydantic model.
-    Uses automatic fallback model chain to gracefully bypass server capacity overloads.
     """
     try:
         client = _get_client()
@@ -123,12 +103,22 @@ def process_meal_fast(image_bytes: bytes) -> Optional[MealMacros]:
         logger.error(f"[ERROR] Failed to initialize Gemini Client: {e}")
         return None
 
-    optimized_bytes = _optimize_image(image_bytes)
+    try:
+        pil_image = _optimize_image(image_bytes)
+    except Exception as e:
+        logger.error(f"[ERROR] Image optimization failed: {e}")
+        return None
 
     prompt = (
-        "Analyze this food image. If it does not contain food, set 'is_food' to false and return 0s for all numeric fields. "
-        "If it is food, estimate portion sizes based on standard dinner plates and common serving sizes. "
-        "IMPORTANT: Ensure total_calories roughly equals (protein_g * 4) + (carbs_g * 4) + (fat_g * 9)."
+        "You are an expert dietician. Analyze this meal image and respond ONLY with a JSON object containing:\n"
+        "- 'is_food': boolean (false if not food/drink)\n"
+        "- 'food_name': string (name of food or 'Unknown')\n"
+        "- 'total_calories': integer\n"
+        "- 'protein_g': float\n"
+        "- 'carbs_g': float\n"
+        "- 'fat_g': float\n"
+        "- 'confidence_score': float (0.0 to 1.0)\n\n"
+        "If not food, set 'is_food' to false and 0 for numeric fields."
     )
 
     models_to_try = _get_fallback_chain()
@@ -136,41 +126,24 @@ def process_meal_fast(image_bytes: bytes) -> Optional[MealMacros]:
 
     for model_name in models_to_try:
         logger.info(f"[INFO] Attempting meal analysis with model: {model_name}")
-        for attempt in range(1, MAX_RETRIES + 2):
+        for attempt in range(1, MAX_RETRIES + 1):
             try:
                 response = client.models.generate_content(
                     model=model_name,
-                    contents=[
-                        types.Part.from_bytes(data=optimized_bytes, mime_type="image/jpeg"),
-                        prompt,
-                    ],
+                    contents=[pil_image, prompt],
                     config=types.GenerateContentConfig(
                         response_mime_type="application/json",
-                        response_schema=MealMacros,
                     ),
                 )
                 
-                if response.text:
-                    data = json.loads(response.text)
+                if response and response.text:
+                    clean_text = response.text.replace("```json", "").replace("```", "").strip()
+                    data = json.loads(clean_text)
                     return MealMacros(**data)
 
-            except ServerError as se:
-                last_error = se
-                logger.warning(
-                    f"[WARNING] Model {model_name} threw server error ({se.code}): {se.message}. "
-                    "Switching to next fallback model..."
-                )
-                break
             except Exception as e:
                 last_error = e
-                error_str = str(e)
-                if _is_retryable(error_str) and attempt <= MAX_RETRIES:
-                    wait = _parse_retry_delay(error_str)
-                    logger.warning(f"[WARNING] Model {model_name} transient error (attempt {attempt}/{MAX_RETRIES}). Waiting {wait:.0f}s...")
-                    time.sleep(wait)
-                else:
-                    logger.warning(f"[WARNING] Model {model_name} encountered error: {e}. Switching to next fallback model...")
-                    break
+                logger.warning(f"[WARNING] Model {model_name} attempt {attempt} failed: {e}")
 
     logger.error(f"[ERROR] All models in fallback chain failed. Last error: {last_error}")
     return None
@@ -211,11 +184,12 @@ def generate_weekly_deep_dive(daily_logs: list, user_profile: dict) -> dict:
                     response_mime_type="application/json",
                 ),
             )
-            if response.text:
-                return json.loads(response.text)
+            if response and response.text:
+                clean_text = response.text.replace("```json", "").replace("```", "").strip()
+                return json.loads(clean_text)
         except Exception as e:
             last_error = e
-            logger.warning(f"[WARNING] Deep dive model {model_name} error: {e}. Switching fallback...")
+            logger.warning(f"[WARNING] Deep dive model {model_name} error: {e}")
             continue
 
     logger.error(f"[ERROR] All models failed deep dive. Last error: {last_error}")
