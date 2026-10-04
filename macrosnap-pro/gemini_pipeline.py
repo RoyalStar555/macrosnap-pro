@@ -25,13 +25,15 @@ def _get_fallback_chain():
     """Returns the list of valid Gemini models to try in order."""
     return ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
 
-def _optimize_image(image_bytes: bytes) -> Image.Image:
-    """Optimizes image size for high-speed vision pipeline."""
+def _optimize_image(image_bytes: bytes) -> bytes:
+    """Optimizes image size and compresses to JPEG bytes to prevent write timeouts."""
     img = Image.open(io.BytesIO(image_bytes))
-    img.thumbnail((1024, 1024))
+    img.thumbnail((512, 512))
     if img.mode != "RGB":
         img = img.convert("RGB")
-    return img
+    buffer = io.BytesIO()
+    img.save(buffer, format="JPEG", quality=80)
+    return buffer.getvalue()
 
 @log_execution_time
 def process_meal_fast(image_bytes: bytes) -> Optional[MealMacros]:
@@ -39,17 +41,22 @@ def process_meal_fast(image_bytes: bytes) -> Optional[MealMacros]:
     High-speed vision pipeline: preprocess -> Gemini generate_content -> validated Pydantic model.
     """
     try:
-        # Initialize client directly with a 60-second timeout (picks up GEMINI_API_KEY automatically)
-        client = genai.Client(http_options={'timeout': 60.0})
+        # Initialize client with 120,000ms (120 seconds) timeout in milliseconds
+        client = genai.Client(http_options=types.HttpOptions(timeout=120000))
     except Exception as e:
         logging.error(f"[ERROR] Failed to initialize Gemini Client: {e}")
         return None
 
     try:
-        pil_image = _optimize_image(image_bytes)
+        optimized_image_bytes = _optimize_image(image_bytes)
     except Exception as e:
         logging.error(f"[ERROR] Image optimization failed: {e}")
         return None
+
+    image_part = types.Part.from_bytes(
+        data=optimized_image_bytes,
+        mime_type="image/jpeg",
+    )
 
     prompt = (
         "You are an expert dietician. Analyze this meal image and respond ONLY with a JSON object containing:\n"
@@ -72,7 +79,7 @@ def process_meal_fast(image_bytes: bytes) -> Optional[MealMacros]:
             try:
                 response = client.models.generate_content(
                     model=model_name,
-                    contents=[pil_image, prompt],
+                    contents=[image_part, prompt],
                     config=types.GenerateContentConfig(
                         response_mime_type="application/json",
                     ),
@@ -85,7 +92,7 @@ def process_meal_fast(image_bytes: bytes) -> Optional[MealMacros]:
 
             except Exception as e:
                 last_error = e
-                logging.warning(f"[WARNING] Model {model_name} attempt {attempt} failed: {e}")
+                logging.warning(f"[WARNING] Model {model_name} attempt {attempt} failed [{type(e).__name__}]: {e}")
 
     logging.error(f"[ERROR] All models in fallback chain failed. Last error: {last_error}")
     return None
@@ -96,7 +103,7 @@ def generate_weekly_deep_dive(logs: list, user: dict) -> dict:
     Generates a weekly health and nutrition deep dive report using Gemini.
     """
     try:
-        client = genai.Client(http_options={'timeout': 60.0})
+        client = genai.Client(http_options=types.HttpOptions(timeout=120000))
         
         prompt = (
             "You are an expert clinical dietician. Analyze the user profile and their recent meal logs, "
@@ -124,7 +131,6 @@ def generate_weekly_deep_dive(logs: list, user: dict) -> dict:
             except Exception as e:
                 logging.warning(f"[WARNING] Weekly deep dive with {model_name} failed: {e}")
 
-        # Safe fallback dictionary if models fail
         return {
             "executive_summary": "You've been consistent with logging! Keep tracking your daily macros to hit your targets.",
             "health_warnings": ["Make sure you are drinking enough water and getting adequate fiber."],
